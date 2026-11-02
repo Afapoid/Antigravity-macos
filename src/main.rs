@@ -146,6 +146,15 @@ pub fn resolve_install_root(raw: &Path) -> Option<PathBuf> {
         return None;
     }
 
+    // Keep a macOS install rooted at its .app, even when a user selects a
+    // nested executable. Contents is also recognizable but loses bundle context.
+    if let Some(bundle) = p
+        .ancestors()
+        .find(|a| a.extension().is_some_and(|e| e == "app") && is_install_root(a))
+    {
+        return Some(bundle.to_path_buf());
+    }
+
     if is_install_root(&p) {
         return Some(p);
     }

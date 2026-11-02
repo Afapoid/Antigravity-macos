@@ -75,7 +75,7 @@ mod platform {
     }
 }
 
-#[cfg(not(target_os = "windows"))]
+#[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
 mod platform {
     use super::{is_service_args, is_window_name};
 
@@ -121,6 +121,69 @@ mod platform {
                 .arg("-TERM")
                 .arg(pid.to_string())
                 .output();
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+mod platform {
+    use super::{is_service_args, is_window_name};
+    use std::path::Path;
+    use std::process::Command;
+    use std::time::Duration;
+
+    pub fn close_others(own: &str) {
+        let Some(uid) = crate::utils::bounded_output(
+            Command::new("/usr/bin/id").arg("-u"),
+            Duration::from_secs(5),
+        ) else {
+            return;
+        };
+        let uid = String::from_utf8_lossy(&uid.stdout).trim().to_string();
+        let Some(list) = crate::utils::bounded_output(
+            Command::new("/bin/ps").args(["-ww", "-U", &uid, "-o", "pid=,comm="]),
+            Duration::from_secs(5),
+        ) else {
+            return;
+        };
+        for line in String::from_utf8_lossy(&list.stdout).lines() {
+            let line = line.trim();
+            let Some((pid, executable)) = line.split_once(char::is_whitespace) else {
+                continue;
+            };
+            let Ok(pid) = pid.parse::<u32>() else {
+                continue;
+            };
+            if pid == std::process::id() {
+                continue;
+            }
+            let Some(name) = Path::new(executable.trim())
+                .file_name()
+                .and_then(|n| n.to_str())
+            else {
+                continue;
+            };
+            if !is_window_name(name, own) {
+                continue;
+            }
+            let Some(args) = crate::utils::bounded_output(
+                Command::new("/bin/ps").args(["-ww", "-p", &pid.to_string(), "-o", "command="]),
+                Duration::from_secs(5),
+            ) else {
+                continue;
+            };
+            if !args.status.success() {
+                continue;
+            }
+            let args = String::from_utf8_lossy(&args.stdout)
+                .split_whitespace()
+                .map(str::to_string)
+                .collect::<Vec<_>>();
+            if !is_service_args(&args) {
+                let _ = Command::new("/bin/kill")
+                    .args(["-TERM", &pid.to_string()])
+                    .output();
+            }
         }
     }
 }
