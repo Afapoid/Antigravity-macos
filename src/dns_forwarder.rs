@@ -226,7 +226,7 @@ pub fn log_dir() -> PathBuf {
 /// On Linux the per-user state dir follows the XDG base-dir spec
 /// (`~/.local/share/agunlocker`), which is also where the own-proxy config and
 /// any relay log will live once that layer is ported.
-#[cfg(not(target_os = "windows"))]
+#[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
 pub fn log_dir() -> PathBuf {
     let base = std::env::var("XDG_DATA_HOME")
         .ok()
@@ -803,7 +803,12 @@ fn answer_log(hits: &[(std::path::PathBuf, ls_log::Tally)]) {
     // After the answers and refusals: an answer older than the drop must not
     // wipe the streak the drop is about to add to.
     if let Some(d) = drop {
-        on_drops(drops, d, dropped_host.as_deref(), answer.is_some_and(|a| a > d));
+        on_drops(
+            drops,
+            d,
+            dropped_host.as_deref(),
+            answer.is_some_and(|a| a > d),
+        );
     }
 }
 
@@ -1648,4 +1653,10 @@ mod tests {
         );
         println!("substituted: {:?}", substituted);
     }
+}
+
+#[cfg(target_os = "macos")]
+pub fn log_dir() -> PathBuf {
+    PathBuf::from(std::env::var_os("HOME").unwrap_or_default())
+        .join("Library/Application Support/AGUnlocker")
 }

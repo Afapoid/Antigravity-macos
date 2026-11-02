@@ -29,14 +29,18 @@ mod egress;
 mod elevate;
 mod endpoint;
 mod gate;
+pub mod group;
+mod group_key;
+#[cfg(feature = "gui")]
 mod gui;
 mod health;
 mod hosts_pin;
 mod hwid;
 mod instances;
-mod group_key;
 mod loopback;
 mod ls_log;
+#[cfg(target_os = "macos")]
+mod macos;
 mod net;
 mod ops;
 mod patch_binary;
@@ -49,13 +53,24 @@ mod settings;
 mod tui;
 mod update;
 mod upstream;
-pub mod group;
 mod utils;
 mod watchdog;
 
 use asar::extract_asar;
 use patch_binary::patch_all_binaries;
 use patch_ide::{is_new_desktop_architecture, patch_desktop, patch_extension_js, patch_ide};
+
+/// Electron uses Contents/Resources on macOS, resources elsewhere.
+pub fn resources_dir(install: &Path) -> PathBuf {
+    let bundle = install.join("Contents").join("Resources");
+    if bundle.is_dir() {
+        return bundle;
+    }
+    if install.file_name().is_some_and(|n| n == "Contents") {
+        return install.join("Resources");
+    }
+    install.join("resources")
+}
 
 pub fn clean_input_path(input: &str) -> String {
     let mut s = input.trim();
@@ -83,7 +98,7 @@ fn is_install_root(path: &Path) -> bool {
         return false;
     }
 
-    let resources = path.join("resources");
+    let resources = crate::resources_dir(path);
     if resources.exists() && resources.is_dir() {
         if resources.join("app.asar").exists()
             || resources.join("app").exists()
@@ -136,7 +151,7 @@ pub fn resolve_install_root(raw: &Path) -> Option<PathBuf> {
     }
 
     let mut current = p.clone();
-    for _ in 0..4 {
+    for _ in 0..8 {
         if let Some(parent) = current.parent() {
             if is_install_root(parent) {
                 return Some(parent.to_path_buf());
@@ -204,7 +219,7 @@ fn standard_install_candidates() -> Vec<PathBuf> {
 /// `resources/app/extensions/antigravity/bin/`. The CLI keeps a per-user `agy`
 /// tree. Anything not covered here is reachable through menu 2 (manual path),
 /// which is why this list can stay short rather than scanning the whole disk.
-#[cfg(not(target_os = "windows"))]
+#[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
 fn standard_install_candidates() -> Vec<PathBuf> {
     let home = env::var("HOME").unwrap_or_default();
     let mut v: Vec<PathBuf> = Vec::new();
@@ -238,6 +253,29 @@ fn standard_install_candidates() -> Vec<PathBuf> {
     v
 }
 
+#[cfg(target_os = "macos")]
+fn standard_install_candidates() -> Vec<PathBuf> {
+    let home = PathBuf::from(env::var_os("HOME").unwrap_or_default());
+    let mut roots = Vec::new();
+    for base in [PathBuf::from("/Applications"), home.join("Applications")] {
+        for name in ["Antigravity.app", "Antigravity IDE.app"] {
+            roots.push(base.join(name));
+        }
+    }
+    for dir in [
+        ".gemini/bin",
+        ".local/bin",
+        ".agy/bin",
+        ".agy",
+        ".local/share/agy/bin",
+    ] {
+        roots.push(home.join(dir));
+    }
+    roots.push(PathBuf::from("/opt/homebrew/bin"));
+    roots.push(PathBuf::from("/usr/local/bin"));
+    roots
+}
+
 /// The directory holding the `agy` CLI, found via PATH first and then the common
 /// per-user/system bin dirs. Linux only; returns the dir (an install root once
 /// `agy` is in it), not the file.
@@ -250,6 +288,7 @@ fn find_agy_dir() -> Option<PathBuf> {
     }
     dirs.push(PathBuf::from(format!("{}/.local/bin", home)));
     dirs.push(PathBuf::from(format!("{}/.agy/bin", home)));
+    dirs.push(PathBuf::from("/opt/homebrew/bin"));
     dirs.push(PathBuf::from("/usr/local/bin"));
     dirs.push(PathBuf::from("/usr/bin"));
     // Never a snap dir: `/snap/bin/agy` is a read-only wrapper, not the real
@@ -275,6 +314,8 @@ fn scan_antigravity_dirs() -> Vec<PathBuf> {
     let home = env::var("HOME").unwrap_or_default();
     let mut out = Vec::new();
     let bases = [
+        "/Applications".to_string(),
+        format!("{}/Applications", home),
         "/opt".to_string(),
         "/usr/share".to_string(),
         "/usr/lib".to_string(),
@@ -402,11 +443,18 @@ pub struct InstallOutcome {
 }
 
 pub fn process_install(install: &Path) -> Result<InstallOutcome, String> {
+    let result = process_install_inner(install);
+    #[cfg(target_os = "macos")]
+    macos::resign_bundle(install)?;
+    result
+}
+
+fn process_install_inner(install: &Path) -> Result<InstallOutcome, String> {
     // Patch all relevant binaries (Language Server / CLI).
     let bin_summary = patch_all_binaries(install);
     let mut warnings: Vec<String> = Vec::new();
 
-    let resources = install.join("resources");
+    let resources = crate::resources_dir(install);
     let app_dir = resources.join("app");
     let app_asar = resources.join("app.asar");
 
@@ -545,7 +593,10 @@ pub fn install_label(install: &Path) -> &'static str {
     if install.join("agy.exe").is_file() || install.join("agy").is_file() {
         "Antigravity CLI"
     } else if install.join("Antigravity IDE.exe").exists()
-        || install.join("resources").join("app").join("out").exists()
+        || crate::resources_dir(install)
+            .join("app")
+            .join("out")
+            .exists()
     {
         "Antigravity IDE"
     } else {
@@ -617,6 +668,10 @@ fn main() {
         return;
     }
 
+    #[cfg(not(feature = "gui"))]
+    run_tui(None);
+
+    #[cfg(feature = "gui")]
     if let Err(e) = gui::run() {
         // No renderer opened a window. The terminal UI carries every switch the
         // window does, so it is offered instead of a dead end: on Windows in a
@@ -648,6 +703,24 @@ fn run_tui(note: Option<String>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn macos_bundle_resources_and_arm_language_server_are_discovered() {
+        let base = env::temp_dir().join(format!("ag-macos-bundle-{}", std::process::id()));
+        let app = base.join("Antigravity IDE.app");
+        let resources = app.join("Contents/Resources");
+        let bin = resources.join("app/extensions/antigravity/bin");
+        fs::create_dir_all(&bin).unwrap();
+        fs::create_dir_all(resources.join("app/out")).unwrap();
+        let ls = bin.join("language_server_macos_arm");
+        fs::write(&ls, b"fixture").unwrap();
+        assert_eq!(resources_dir(&app), resources);
+        assert_eq!(resolve_install_root(&app), Some(app.clone()));
+        assert_eq!(resolve_install_root(&ls), Some(app.clone()));
+        assert!(patch_binary::binary_targets(&app).contains(&fs::canonicalize(ls).unwrap()));
+        assert_eq!(install_label(&app), "Antigravity IDE");
+        fs::remove_dir_all(base).unwrap();
+    }
 
     /// Regression: `%LOCALAPPDATA%` holds an `agy` *directory* (the CLI's folder).
     /// An `exists()` check matched that directory, so the parent-walk in

@@ -268,7 +268,14 @@ pub fn open_url(url: &str) {
     }
     #[cfg(not(target_os = "windows"))]
     {
-        Command::new("xdg-open").arg(url).status().ok();
+        Command::new(if cfg!(target_os = "macos") {
+            "open"
+        } else {
+            "xdg-open"
+        })
+        .arg(url)
+        .status()
+        .ok();
     }
 }
 
@@ -463,12 +470,16 @@ pub fn reveal_in_explorer(path: &Path) {
     #[cfg(not(target_os = "windows"))]
     {
         if let Some(dir) = path.parent() {
-            Command::new("xdg-open")
-                .arg(dir)
-                .stdout(Stdio::null())
-                .stderr(Stdio::null())
-                .spawn()
-                .ok();
+            Command::new(if cfg!(target_os = "macos") {
+                "open"
+            } else {
+                "xdg-open"
+            })
+            .arg(dir)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .ok();
         }
     }
 }

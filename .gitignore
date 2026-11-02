@@ -1,0 +1,8 @@
+/target/
+/release/
+__pycache__/
+*.pyc
+.DS_Store
+.relay_key
+.exits
+.group

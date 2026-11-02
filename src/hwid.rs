@@ -207,7 +207,7 @@ fn parse_smbios(mut data: &[u8]) -> Option<String> {
     None
 }
 
-#[cfg(unix)]
+#[cfg(all(unix, not(target_os = "macos")))]
 fn get_raw_hwid() -> String {
     use std::fs;
     if let Ok(uuid) = fs::read_to_string("/sys/class/dmi/id/product_uuid") {
@@ -276,4 +276,19 @@ mod tests {
         let trunc = vec![1, 24, 0, 0];
         assert_eq!(parse_smbios(&trunc), None);
     }
+}
+
+#[cfg(target_os = "macos")]
+fn get_raw_hwid() -> String {
+    let output = std::process::Command::new("/usr/sbin/ioreg")
+        .args(["-rd1", "-c", "IOPlatformExpertDevice"])
+        .output();
+    if let Ok(out) = output {
+        for line in String::from_utf8_lossy(&out.stdout).lines() {
+            if let Some((_, value)) = line.split_once("\"IOPlatformUUID\" = ") {
+                return format!("platform-uuid:{}", value.trim().trim_matches('"'));
+            }
+        }
+    }
+    format!("mac-host:{}", std::env::var("HOME").unwrap_or_default())
 }

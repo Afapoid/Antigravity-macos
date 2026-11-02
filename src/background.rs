@@ -19,7 +19,7 @@ pub const PROXY_FLAG: &str = "--proxy";
 #[cfg(target_os = "windows")]
 pub use windows_impl::*;
 
-#[cfg(not(target_os = "windows"))]
+#[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
 pub use unix_impl::*;
 
 #[cfg(target_os = "windows")]
@@ -529,7 +529,7 @@ mod windows_impl {
 // root, no `:53` listener, so systemd-resolved is never touched. The DNS relay
 // (phase 5) would be a separate, privileged story; this is deliberately the
 // unprivileged half that already lifts the region gate through a permitted exit.
-#[cfg(not(target_os = "windows"))]
+#[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
 mod unix_impl {
     use std::fs;
     use std::path::PathBuf;
@@ -780,3 +780,6 @@ mod unix_impl {
         Ok(())
     }
 }
+
+#[cfg(target_os = "macos")]
+pub use crate::macos::background::*;

@@ -99,16 +99,14 @@ fn restore_js(target: &Path) -> Result<bool, String> {
 /// window does not have.
 pub fn unpatch_ide_js(inst: &Path) -> Vec<(String, Result<bool, String>)> {
     let mut out = Vec::new();
-    let main_js = inst
-        .join("resources")
+    let main_js = crate::resources_dir(inst)
         .join("app")
         .join("out")
         .join("main.js");
     if main_js.exists() {
         out.push(("main.js".to_string(), restore_js(&main_js)));
     }
-    let ext = inst
-        .join("resources")
+    let ext = crate::resources_dir(inst)
         .join("app")
         .join("extensions")
         .join("antigravity")
@@ -640,8 +638,7 @@ mod tests {
 }
 
 pub fn patch_extension_js(inst: &Path) -> Result<bool, String> {
-    let ext_path = inst
-        .join("resources")
+    let ext_path = crate::resources_dir(inst)
         .join("app")
         .join("extensions")
         .join("antigravity")

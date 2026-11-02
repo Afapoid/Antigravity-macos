@@ -56,8 +56,12 @@ pub fn revert_files(inst: &Path) -> Reverted {
             Err(e) => out.errors.push(format!("{label}: {e}")),
         }
     }
-    if let Err(e) = crate::restore_pristine_asar(&inst.join("resources")) {
+    if let Err(e) = crate::restore_pristine_asar(&crate::resources_dir(inst)) {
         out.warnings.push(format!("app.asar не восстановлен: {e}"));
+    }
+    #[cfg(target_os = "macos")]
+    if let Err(e) = crate::macos::resign_bundle(inst) {
+        out.errors.push(e);
     }
     out
 }
@@ -95,7 +99,7 @@ fn written_dirs(inst: &Path) -> Vec<PathBuf> {
         .filter(|t| t.is_file())
         .filter_map(|t| t.parent().map(Path::to_path_buf))
         .collect();
-    let app = inst.join("resources").join("app");
+    let app = crate::resources_dir(inst).join("app");
     for js in [
         app.join("out").join("main.js"),
         app.join("dist").join("main.js"),
@@ -159,6 +163,9 @@ fn shell_quote(s: &str) -> String {
 pub fn patch_as_root(inst: &Path) -> Result<Elevated, String> {
     use std::process::Command;
     let exe = std::env::current_exe().map_err(|e| format!("не найден путь к exe: {e}"))?;
+    #[cfg(target_os = "macos")]
+    let out = crate::macos::elevated_helper(&exe, PATCH_ROOT_FLAG, inst)?;
+    #[cfg(not(target_os = "macos"))]
     let out = Command::new("pkexec")
         .arg("--disable-internal-agent")
         .arg(&exe)
@@ -272,6 +279,9 @@ fn parse_report(stdout: &str) -> Result<Elevated, String> {
 pub fn unpatch_as_root(inst: &Path) -> Result<Reverted, String> {
     use std::process::Command;
     let exe = std::env::current_exe().map_err(|e| format!("не найден путь к exe: {e}"))?;
+    #[cfg(target_os = "macos")]
+    let out = crate::macos::elevated_helper(&exe, UNPATCH_ROOT_FLAG, inst)?;
+    #[cfg(not(target_os = "macos"))]
     let out = Command::new("pkexec")
         .arg("--disable-internal-agent")
         .arg(&exe)
@@ -353,8 +363,10 @@ fn parse_reverted(stdout: &str) -> Option<Reverted> {
 mod tests {
     #[test]
     fn the_unpatch_report_reads_back_and_needs_its_last_line() {
-        let done = super::parse_reverted("FILES\t2\nBAD\tlanguage_server: отказано\nWARN\tapp.asar\nDONE\n")
-            .expect("done");
+        let done = super::parse_reverted(
+            "FILES\t2\nBAD\tlanguage_server: отказано\nWARN\tapp.asar\nDONE\n",
+        )
+        .expect("done");
         assert_eq!(done.files, 2);
         assert_eq!(done.errors, vec!["language_server: отказано".to_string()]);
         assert_eq!(done.warnings, vec!["app.asar".to_string()]);
@@ -387,7 +399,7 @@ mod tests {
             return; // root writes anywhere; nothing to measure
         }
         let inst = std::env::temp_dir().join(format!("ag_elevate_{}", std::process::id()));
-        let bin = inst.join("resources").join("bin");
+        let bin = crate::resources_dir(inst).join("bin");
         std::fs::create_dir_all(&bin).unwrap();
         std::fs::write(bin.join("language_server_linux_x64"), b"x").unwrap();
         assert!(!needs_root(&inst));

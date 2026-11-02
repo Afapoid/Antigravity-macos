@@ -200,7 +200,9 @@ fn updater_dirs() -> Vec<PathBuf> {
 /// the fast poll on for as long as it waits - days, if the user never quits.
 fn updater_busy(dirs: &[PathBuf]) -> bool {
     dirs.iter().any(|d| {
-        let Ok(rd) = fs::read_dir(d) else { return false };
+        let Ok(rd) = fs::read_dir(d) else {
+            return false;
+        };
         rd.flatten()
             .map(|e| e.path())
             .filter(|p| p.extension().is_some_and(|x| x == "exe"))
@@ -381,11 +383,21 @@ fn inspect(target: &Path, st: &mut FileState) {
 /// Picks the right patch for a target by kind: the IDE's `main.js` gets the JS
 /// patch, everything else is a native binary.
 fn repatch(target: &Path) -> RepatchOutcome {
-    if target.extension().and_then(|e| e.to_str()) == Some("js") {
+    let result = if target.extension().and_then(|e| e.to_str()) == Some("js") {
         patch_ide::repatch_ide_js(target)
     } else {
         patch_binary::repatch_if_needed(target)
+    };
+    #[cfg(target_os = "macos")]
+    if matches!(
+        result,
+        RepatchOutcome::Repatched(_) | RepatchOutcome::AlreadyPatched
+    ) {
+        if let Err(e) = crate::macos::resign_bundle(target) {
+            return RepatchOutcome::Failed(e);
+        }
     }
+    result
 }
 
 /// Every file this watcher keeps patched for one install: the native binaries,
@@ -394,8 +406,7 @@ fn repatch(target: &Path) -> RepatchOutcome {
 /// touched; only the IDE's `out/main.js` is.
 fn targets(inst: &Path) -> Vec<PathBuf> {
     let mut list = patch_binary::binary_targets(inst);
-    let ide_js = inst
-        .join("resources")
+    let ide_js = crate::resources_dir(inst)
         .join("app")
         .join("out")
         .join("main.js");
