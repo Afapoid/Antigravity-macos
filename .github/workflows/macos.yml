@@ -18,6 +18,13 @@ jobs:
         run: test "$(uname -m)" = arm64
       - name: Install Rust
         run: rustup update stable --no-self-update && rustup default stable
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: macos-arm64-${{ hashFiles('Cargo.lock', 'Cargo.toml') }}
       - name: Check launcher and macOS regression tests
         run: |
           sh -n tui.sh macos/build.sh

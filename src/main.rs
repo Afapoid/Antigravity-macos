@@ -33,6 +33,13 @@ pub mod group;
 mod group_key;
 #[cfg(feature = "gui")]
 mod gui;
+// The TUI shares these non-graphical models with the window.
+#[cfg(not(feature = "gui"))]
+mod gui {
+    pub mod report;
+    pub mod status;
+    pub const TELEGRAM_KEYS_URL: &str = "https://t.me/nova_txt/69864";
+}
 mod health;
 mod hosts_pin;
 mod hwid;

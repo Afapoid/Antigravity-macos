@@ -108,6 +108,19 @@ fn written_dirs(inst: &Path) -> Vec<PathBuf> {
             dirs.push(dir.to_path_buf());
         }
     }
+    #[cfg(target_os = "macos")]
+    if let Some(bundle) = inst
+        .ancestors()
+        .find(|p| p.extension().is_some_and(|x| x == "app"))
+    {
+        // Re-signing the bundle writes its main executable and resource seal.
+        for subdir in ["Contents", "Contents/MacOS", "Contents/_CodeSignature"] {
+            let path = bundle.join(subdir);
+            if path.is_dir() {
+                dirs.push(path);
+            }
+        }
+    }
     dirs.sort();
     dirs.dedup();
     dirs
@@ -399,7 +412,7 @@ mod tests {
             return; // root writes anywhere; nothing to measure
         }
         let inst = std::env::temp_dir().join(format!("ag_elevate_{}", std::process::id()));
-        let bin = crate::resources_dir(inst).join("bin");
+        let bin = crate::resources_dir(&inst).join("bin");
         std::fs::create_dir_all(&bin).unwrap();
         std::fs::write(bin.join("language_server_linux_x64"), b"x").unwrap();
         assert!(!needs_root(&inst));
