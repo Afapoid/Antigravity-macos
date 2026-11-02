@@ -359,6 +359,54 @@ mod tests {
     }
 
     #[test]
+    fn macos_bundle_resource_seal_is_valid_after_patching() {
+        let dir = std::env::temp_dir().join(format!("ag-bundle-sign-{}", std::process::id()));
+        let app = dir.join("Antigravity.app");
+        let contents = app.join("Contents");
+        let binaries = contents.join("Resources/bin");
+        fs::create_dir_all(&binaries).unwrap();
+        fs::create_dir_all(contents.join("MacOS")).unwrap();
+        fs::write(contents.join("Info.plist"), b"<?xml version=\"1.0\"?><plist version=\"1.0\"><dict><key>CFBundleIdentifier</key><string>org.agunlocker.fixture</string><key>CFBundleExecutable</key><string>Antigravity</string><key>CFBundlePackageType</key><string>APPL</string></dict></plist>").unwrap();
+        let source = dir.join("fixture.c");
+        fs::write(
+            &source,
+            b"#include <stdio.h>\nint main(void) { puts(\"ineligible https_proxy\"); return 0; }\n",
+        )
+        .unwrap();
+        let main = contents.join("MacOS/Antigravity");
+        checked(
+            Command::new("/usr/bin/clang")
+                .arg(&source)
+                .arg("-o")
+                .arg(&main),
+        )
+        .unwrap();
+        let ls = binaries.join("language_server_macos_arm");
+        fs::copy(&main, &ls).unwrap();
+        sign_binary(&ls).unwrap();
+        resign_bundle(&app).unwrap();
+        assert_eq!(crate::patch_binary::patch_all_binaries(&app).ok, 1);
+        resign_bundle(&app).unwrap();
+        checked(
+            Command::new("/usr/bin/codesign")
+                .args(["--verify", "--deep", "--strict"])
+                .arg(&app),
+        )
+        .unwrap();
+        let result = checked(&mut Command::new(&ls)).unwrap();
+        assert!(String::from_utf8_lossy(&result.stdout).contains("inexigible"));
+        let reverted = crate::elevate::revert_files(&app);
+        assert!(reverted.errors.is_empty(), "{:?}", reverted.errors);
+        checked(
+            Command::new("/usr/bin/codesign")
+                .args(["--verify", "--deep", "--strict"])
+                .arg(&app),
+        )
+        .unwrap();
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
     fn macos_patch_and_revert_keep_native_code_runnable_and_signed() {
         use std::os::unix::fs::PermissionsExt;
         let dir = std::env::temp_dir().join(format!("ag-native-sign-{}", std::process::id()));
