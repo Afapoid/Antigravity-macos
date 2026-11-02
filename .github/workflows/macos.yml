@@ -37,7 +37,9 @@ jobs:
           fi
           sh macos/build.sh
           target/aarch64-apple-darwin/release/ag_unlocker --version
-          python3 macos/smoke.py target/aarch64-apple-darwin/release/ag_unlocker
+      - name: Verify native TUI startup
+        timeout-minutes: 2
+        run: python3 -u macos/smoke.py target/aarch64-apple-darwin/release/ag_unlocker
       - uses: actions/upload-artifact@v4
         with:
           name: macos-arm64

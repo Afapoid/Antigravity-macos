@@ -9,11 +9,6 @@ VERSION=${AG_FULL_VERSION:-$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml |
 case "$VERSION" in "" | *[!0-9._]*) echo "Некорректная версия" >&2; exit 1 ;; esac
 export AG_FULL_VERSION="$VERSION"
 export MACOSX_DEPLOYMENT_TARGET=11.0
-# The upstream fat-LTO/one-unit profile targets minimum Windows download size.
-# Keep native builds within the memory budget of the 7 GB Apple Silicon runner.
-export CARGO_PROFILE_RELEASE_OPT_LEVEL=2
-export CARGO_PROFILE_RELEASE_LTO=thin
-export CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16
 rustup target add aarch64-apple-darwin
 cargo build --locked --release --no-default-features --target aarch64-apple-darwin
 mkdir -p release/staging
