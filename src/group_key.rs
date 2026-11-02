@@ -155,6 +155,12 @@ fn unwrap(t: &[u8], token: &str) -> Result<Vec<u8>, KeyError> {
 include!(concat!(env!("OUT_DIR"), "/group_gen.rs"));
 
 pub fn parse_key(text: &str) -> Result<GroupKey, KeyError> {
+    // A public build has no baked group credential. Reject unrelated input
+    // before attempting to decrypt that optional credential.
+    obfstr::obfstr! { let prefix = "agk1."; }
+    if !text.trim().starts_with(prefix) {
+        return Err(KeyError::NotAKey);
+    }
     use aes_gcm::aead::Aead;
     use aes_gcm::{Aes256Gcm, Key, KeyInit, Nonce as AesNonce};
     let plain_group = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(&GROUP_KEY))

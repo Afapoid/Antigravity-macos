@@ -548,6 +548,9 @@ mod tests {
     fn a_reverted_binary_in_an_install_is_repatched_after_settling() {
         let inst = std::env::temp_dir().join("ag_watchdog_wiring");
         fs::create_dir_all(&inst).expect("temp inst");
+        // macOS temp_dir contains /var -> /private/var; binary_targets resolves
+        // symlinks, so compare it with the same canonical directory.
+        let inst = fs::canonicalize(inst).unwrap();
         let agy = inst.join("agy.exe");
         // Stand-in for a Language Server an update reverted to the gated name.
         fs::write(&agy, b"header..ineligible..tail").unwrap();
